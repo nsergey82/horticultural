@@ -1,0 +1,124 @@
+<head>
+    <script src="https://unpkg.com/kaplay@3001.0.19/dist/kaplay.js"></script>
+</head>
+
+<body>
+    <script>
+        const k = kaplay({
+            background: "#a4a4b3",
+            global: false,
+            debug: true,
+        });
+
+        // Game constants
+        const FARM_WIDTH = 8;
+        const FARM_HEIGHT = 6;
+        const TILE_T = "tile";
+        const DIRT_C = " ";
+        const GRASS_C = "g";
+        const RIPE_C = "r";
+
+        const TOOL_PLANT = "plant seeds";
+        const TOOL_WATER = "water crops";
+        const TOOL_REAP = "reap crops";
+        const TOOLS = [TOOL_PLANT, TOOL_WATER, TOOL_REAP];
+
+        // Rendering constants
+        const TILE_SZ = 64;
+        const DIRT_S = k.Color.fromHex("#C4A484");
+        const GRASS_S = k.GREEN;
+        const RIPE_S = k.Color.fromHex("#FFA500");
+
+        // State to sprites map
+        const RENDER = new Map([
+            [DIRT_C, DIRT_S], [GRASS_C, GRASS_S], [RIPE_C, RIPE_S]
+        ]);
+
+        function emptyTileDrawer() {
+            return [
+                k.rect(TILE_SZ, TILE_SZ),
+                k.outline(1),
+                k.color(DIRT_S),
+                k.area(),
+                k.body(),
+                TILE_T,
+            ];
+        }
+
+        // for now the state is a single character -- TODO 2 char. formalism
+        class GameState {
+            constructor(w = FARM_WIDTH, h = FARM_HEIGHT) {
+                this.field = Array(h).fill([]).map((r) => r.concat(Array(w).fill(DIRT_C)));
+                this.activeToolIndex = 0;
+                this.collected = 0;
+            }
+
+            toArrayOfStrings() {
+                return this.field.map((row) => row.join(""));
+            }
+
+            nextTool() {
+                this.activeToolIndex = (1 + this.activeToolIndex) % TOOLS.length;
+                return TOOLS[this.activeToolIndex];
+            }
+
+            // apply tool if possible, return new state
+            applyTool(r, c) {
+                const current = this.field[r][c];
+                if (TOOLS[this.activeToolIndex] === TOOL_PLANT && current === DIRT_C) {
+                    return this.field[r][c] = GRASS_C;
+                }
+                if (TOOLS[this.activeToolIndex] === TOOL_WATER && current === GRASS_C) {
+                    return this.field[r][c] = RIPE_C;
+                }
+                if (TOOLS[this.activeToolIndex] === TOOL_REAP && current === RIPE_C) {
+                    this.collected += 1;
+                    return this.field[r][c] = DIRT_C;
+                }
+                return false;
+            }
+        }
+
+
+        const gameState = new GameState();
+
+        const level = k.addLevel(gameState.toArrayOfStrings(), {
+            tileWidth: TILE_SZ,
+            tileHeight: TILE_SZ,
+            // The position of the top left block
+            pos: k.vec2(50, 50),
+            tiles: {
+                " ": emptyTileDrawer
+            },
+        })
+
+        const toolLabel = k.add([
+            k.pos(50, TILE_SZ * (gameState.field.length + 1)),
+            k.text("current tool: plant seeds", {
+                size: 18, // 48 pixels tall
+                width: 320, // it'll wrap to next line when width exceeds this value
+                font: "sans-serif", // specify any font you loaded or browser built-in
+            }),
+        ])
+        const cropsLabel = k.add([
+            k.pos(50, TILE_SZ * (gameState.field.length + 2)),
+            k.text("crops collected: 0", {
+                size: 18, // 48 pixels tall
+                width: 320, // it'll wrap to next line when width exceeds this value
+                font: "sans-serif", // specify any font you loaded or browser built-in
+            }),
+        ])
+
+        k.onClick(TILE_T, (tile) => {
+            const res = gameState.applyTool(tile.tilePos.y, tile.tilePos.x);
+            if (res !== false) {
+                tile.color = RENDER.get(res);
+                cropsLabel.text = "crops collected: " + gameState.collected;
+            }
+        });
+
+        k.onKeyPress("n", () => {
+            toolLabel.text = "current tool: " + gameState.nextTool();
+        });
+    </script>
+</body>
