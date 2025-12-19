@@ -14,8 +14,11 @@
         const FARM_WIDTH = 8;
         const FARM_HEIGHT = 6;
         const TILE_T = "tile";
+
+        // base and overlays
         const DIRT_C = " ";
-        const GRASS_C = "g";
+        const SEED_C = "s";
+        const WATER_C = "w";
         const RIPE_C = "r";
 
         const TOOL_PLANT = "plant seeds";
@@ -27,11 +30,12 @@
         const TILE_SZ = 64;
         const DIRT_S = k.Color.fromHex("#C4A484");
         const GRASS_S = k.GREEN;
+        const GRASS_SS = k.Color.fromHex("#006400");
         const RIPE_S = k.Color.fromHex("#FFA500");
 
         // State to sprites map
         const RENDER = new Map([
-            [DIRT_C, DIRT_S], [GRASS_C, GRASS_S], [RIPE_C, RIPE_S]
+            [DIRT_C, DIRT_S], [SEED_C, GRASS_S], [RIPE_C, RIPE_S]
         ]);
 
         function emptyTileDrawer() {
@@ -45,16 +49,94 @@
             ];
         }
 
-        // for now the state is a single character -- TODO 2 char. formalism
+        // a tile will have a "terrain" type
+        // and an ordered list of overlays
+        // they can define a planted tree 3 days old
+        // and the fact that it is watered today
+        class Overlay {
+            constructor(kind = "plant") {
+                this.kind = kind;
+                this.age = 0;
+            }
+        }
+
+        class TileState {
+            constructor(base = DIRT_C) {
+                this.baseTile = base;
+                this.overlays = [];
+            }
+
+            hasKind(kind) {
+                return this.overlays.some(x => x.kind === kind);
+            }
+
+            getKind(kind) {
+                return this.overlays.find(x => x.kind === kind);
+            }
+
+            remove(kind) {
+                this.overlays = this.overlays.filter(v => v.kind !== kind)
+            }
+
+            applyTool(tool) {
+                if (tool === TOOL_PLANT) {
+                    this.plant(SEED_C);
+                }
+                else if (tool === TOOL_WATER) {
+                    this.water();
+                }
+                else if (tool === TOOL_REAP) {
+                    this.reap();
+                }
+            }
+
+            plant(seed) {
+                if (!this.hasKind(SEED_C) && !this.hasKind(RIPE_C)) {
+                    this.overlays.push(new Overlay(seed));
+                }
+            }
+
+            water() {
+                let x = this.getKind(WATER_C);
+                if (x !== undefined) {
+                    x.age += 1
+                    if (x.age > 1) {
+                        this.overlays.push(new Overlay(RIPE_C));
+                        this.remove(SEED_C);
+                        this.remove(WATER_C);
+                    }
+                }
+                else if (this.hasKind(SEED_C)) {
+                    this.overlays.push(new Overlay(WATER_C));
+                }
+            }
+
+            reap() {
+                if (this.hasKind(RIPE_C)) {
+                    this.overlays = [];
+                }
+            }
+        }
+
         class GameState {
             constructor(w = FARM_WIDTH, h = FARM_HEIGHT) {
-                this.field = Array(h).fill([]).map((r) => r.concat(Array(w).fill(DIRT_C)));
+                this.field = Array.from({ length: h }, () => []);
+                this.field.forEach(row => {
+                    for (let i = 0; i < w; ++i) {
+                        row.push(new TileState());
+                    }
+                });
+
                 this.activeToolIndex = 0;
                 this.collected = 0;
             }
 
             toArrayOfStrings() {
-                return this.field.map((row) => row.join(""));
+                return this.field.map((row) => row.map((t) => t.baseTile).join(""));
+            }
+
+            toJson() {
+                return JSON.stringify(this.field);
             }
 
             nextTool() {
@@ -62,23 +144,28 @@
                 return TOOLS[this.activeToolIndex];
             }
 
-            // apply tool if possible, return new state
+            // apply tool if possible, return tile (maybe modified)
             applyTool(r, c) {
-                const current = this.field[r][c];
-                if (TOOLS[this.activeToolIndex] === TOOL_PLANT && current === DIRT_C) {
-                    return this.field[r][c] = GRASS_C;
-                }
-                if (TOOLS[this.activeToolIndex] === TOOL_WATER && current === GRASS_C) {
-                    return this.field[r][c] = RIPE_C;
-                }
-                if (TOOLS[this.activeToolIndex] === TOOL_REAP && current === RIPE_C) {
+                let tile = this.field[r][c];
+                const before = tile.hasKind(RIPE_C);
+                tile.applyTool(TOOLS[this.activeToolIndex])
+                const after = !tile.hasKind(RIPE_C);
+                if (before && after) {
                     this.collected += 1;
-                    return this.field[r][c] = DIRT_C;
                 }
-                return false;
+                return tile;
             }
         }
 
+        function tileToRender(tile) {
+            if (tile.hasKind(WATER_C) || tile.hasKind(SEED_C)) {
+                return RENDER.get(SEED_C);
+            }
+            if (tile.hasKind(RIPE_C)) {
+                return RENDER.get(RIPE_C);
+            }
+            return RENDER.get(tile.baseTile);
+        }
 
         const gameState = new GameState();
 
@@ -110,11 +197,9 @@
         ])
 
         k.onClick(TILE_T, (tile) => {
-            const res = gameState.applyTool(tile.tilePos.y, tile.tilePos.x);
-            if (res !== false) {
-                tile.color = RENDER.get(res);
-                cropsLabel.text = "crops collected: " + gameState.collected;
-            }
+            const rtile = gameState.applyTool(tile.tilePos.y, tile.tilePos.x);
+            tile.color = tileToRender(rtile)
+            cropsLabel.text = "crops collected: " + gameState.collected;
         });
 
         k.onKeyPress("n", () => {
