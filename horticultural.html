@@ -1,5 +1,7 @@
 <head>
     <script src="https://unpkg.com/kaplay@3001.0.19/dist/kaplay.js"></script>
+    <script src="game.js"></script>
+    <script src="rendering.js"></script>
 </head>
 
 <body>
@@ -10,161 +12,27 @@
             debug: true,
         });
 
-        // Game constants
-        const FARM_WIDTH = 8;
-        const FARM_HEIGHT = 6;
-        const TILE_T = "tile";
+        const SEEDS_TAG = "seeds";
+        const PLOUGHED_TAG = "ploughed";
 
-        // base and overlays
-        const DIRT_C = " ";
-        const SEED_C = "s";
-        const WATER_C = "w";
-        const RIPE_C = "r";
-
-        const TOOL_PLANT = "plant seeds";
-        const TOOL_WATER = "water crops";
-        const TOOL_REAP = "reap crops";
-        const TOOLS = [TOOL_PLANT, TOOL_WATER, TOOL_REAP];
+        k.loadSprite("dirt", "dirt_t.png");
+        k.loadSprite(PLOUGHED_TAG, "ploughed_t.png");
+        k.loadSprite(SEEDS_TAG, "seeds_a.png", {
+            sliceX: 4,
+            sliceY: 1,
+        });
 
         // Rendering constants
-        const TILE_SZ = 64;
+        const TILE_SZ = 48;
         const DIRT_S = k.Color.fromHex("#C4A484");
-        const GRASS_S = k.GREEN;
-        const GRASS_SS = k.Color.fromHex("#006400");
-        const RIPE_S = k.Color.fromHex("#FFA500");
-
-        // State to sprites map
-        const RENDER = new Map([
-            [DIRT_C, DIRT_S], [SEED_C, GRASS_S], [RIPE_C, RIPE_S]
-        ]);
 
         function emptyTileDrawer() {
             return [
-                k.rect(TILE_SZ, TILE_SZ),
-                k.outline(1),
-                k.color(DIRT_S),
+                k.sprite("dirt"),
                 k.area(),
                 k.body(),
                 TILE_T,
             ];
-        }
-
-        // a tile will have a "terrain" type
-        // and an ordered list of overlays
-        // they can define a planted tree 3 days old
-        // and the fact that it is watered today
-        class Overlay {
-            constructor(kind = "plant") {
-                this.kind = kind;
-                this.age = 0;
-            }
-        }
-
-        class TileState {
-            constructor(base = DIRT_C) {
-                this.baseTile = base;
-                this.overlays = [];
-            }
-
-            hasKind(kind) {
-                return this.overlays.some(x => x.kind === kind);
-            }
-
-            getKind(kind) {
-                return this.overlays.find(x => x.kind === kind);
-            }
-
-            remove(kind) {
-                this.overlays = this.overlays.filter(v => v.kind !== kind)
-            }
-
-            applyTool(tool) {
-                if (tool === TOOL_PLANT) {
-                    this.plant(SEED_C);
-                }
-                else if (tool === TOOL_WATER) {
-                    this.water();
-                }
-                else if (tool === TOOL_REAP) {
-                    this.reap();
-                }
-            }
-
-            plant(seed) {
-                if (!this.hasKind(SEED_C) && !this.hasKind(RIPE_C)) {
-                    this.overlays.push(new Overlay(seed));
-                }
-            }
-
-            water() {
-                let x = this.getKind(WATER_C);
-                if (x !== undefined) {
-                    x.age += 1
-                    if (x.age > 1) {
-                        this.overlays.push(new Overlay(RIPE_C));
-                        this.remove(SEED_C);
-                        this.remove(WATER_C);
-                    }
-                }
-                else if (this.hasKind(SEED_C)) {
-                    this.overlays.push(new Overlay(WATER_C));
-                }
-            }
-
-            reap() {
-                if (this.hasKind(RIPE_C)) {
-                    this.overlays = [];
-                }
-            }
-        }
-
-        class GameState {
-            constructor(w = FARM_WIDTH, h = FARM_HEIGHT) {
-                this.field = Array.from({ length: h }, () => []);
-                this.field.forEach(row => {
-                    for (let i = 0; i < w; ++i) {
-                        row.push(new TileState());
-                    }
-                });
-
-                this.activeToolIndex = 0;
-                this.collected = 0;
-            }
-
-            toArrayOfStrings() {
-                return this.field.map((row) => row.map((t) => t.baseTile).join(""));
-            }
-
-            toJson() {
-                return JSON.stringify(this.field);
-            }
-
-            nextTool() {
-                this.activeToolIndex = (1 + this.activeToolIndex) % TOOLS.length;
-                return TOOLS[this.activeToolIndex];
-            }
-
-            // apply tool if possible, return tile (maybe modified)
-            applyTool(r, c) {
-                let tile = this.field[r][c];
-                const before = tile.hasKind(RIPE_C);
-                tile.applyTool(TOOLS[this.activeToolIndex])
-                const after = !tile.hasKind(RIPE_C);
-                if (before && after) {
-                    this.collected += 1;
-                }
-                return tile;
-            }
-        }
-
-        function tileToRender(tile) {
-            if (tile.hasKind(WATER_C) || tile.hasKind(SEED_C)) {
-                return RENDER.get(SEED_C);
-            }
-            if (tile.hasKind(RIPE_C)) {
-                return RENDER.get(RIPE_C);
-            }
-            return RENDER.get(tile.baseTile);
         }
 
         const gameState = new GameState();
@@ -181,7 +49,7 @@
 
         const toolLabel = k.add([
             k.pos(50, TILE_SZ * (gameState.field.length + 1)),
-            k.text("current tool: plant seeds", {
+            k.text("current tool: plough", {
                 size: 18, // 48 pixels tall
                 width: 320, // it'll wrap to next line when width exceeds this value
                 font: "sans-serif", // specify any font you loaded or browser built-in
@@ -197,13 +65,19 @@
         ])
 
         k.onClick(TILE_T, (tile) => {
-            const rtile = gameState.applyTool(tile.tilePos.y, tile.tilePos.x);
-            tile.color = tileToRender(rtile)
+            const gtile = gameState.applyTool(tile.tilePos.y, tile.tilePos.x);
+            tileToRender(k, gtile, tile)
             cropsLabel.text = "crops collected: " + gameState.collected;
         });
 
         k.onKeyPress("n", () => {
             toolLabel.text = "current tool: " + gameState.nextTool();
         });
+
+
+        /*
+        The cycle of life:
+        dirt -> ploughed -> planted -> watered1 -> watered2 ... wateredk -> ripe -> dirt
+        */
     </script>
 </body>
